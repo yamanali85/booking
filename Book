@@ -1,0 +1,32 @@
+import React, { useEffect } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { List, Typography } from 'antd';
+import { fetchBookings } from '../redux/bookingsSlice';
+
+const { Title } = Typography;
+
+const BookingList = () => {
+  const dispatch = useDispatch();
+  const { bookings, isLoading } = useSelector((state) => state.bookings);
+
+  useEffect(() => {
+    dispatch(fetchBookings());
+  }, [dispatch]);
+
+  return (
+    <>
+      <Title level={2}>Bookings</Title>
+      <List
+        loading={isLoading}
+        dataSource={bookings}
+        renderItem={(booking) => (
+          <List.Item>
+            {booking.startDate} - {booking.endDate}
+          </List.Item>
+        )}
+      />
+    </>
+  );
+};
+
+export default BookingList;
