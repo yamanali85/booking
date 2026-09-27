@@ -1,0 +1,801 @@
+<title>Bağırsak Gezisi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Chivo+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #07090a;
+    --panel: #0d1112;
+    --line: #1f2628;
+    --ink: #ebe7de;
+    --dim: #8f8a80;
+    --accent: #f1b43a;
+    --accent-ink: #1a1204;
+    --live: #63d38e;
+    --tissue: #d98a78;
+    --mono: "Chivo Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: "Barlow Semi Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.45; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .app { height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 14px; padding: 16px; }
+  .main { display: grid; grid-template-columns: 196px minmax(0, 1fr) 300px; gap: 20px; min-height: 0; }
+
+  /* Monitor data column */
+  .hud { font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; display: flex; flex-direction: column; gap: 18px; padding-top: 4px; min-width: 0; }
+  .hud-brand { font-size: 13px; font-weight: 500; letter-spacing: 0.14em; line-height: 1.35; }
+  .hud-meta { display: flex; flex-direction: column; gap: 2px; color: var(--dim); }
+  .hud-clock { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .hud-data { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+  .hud-data dt { color: var(--dim); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.12em; }
+  .hud-data dd { margin: 2px 0 0; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .hud-data dd.seg { color: var(--accent); text-transform: uppercase; font-size: 14px; letter-spacing: 0.06em; line-height: 1.25; }
+
+  /* Endoscope image */
+  .stage-wrap { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; }
+  .stage { position: relative; background: #000; width: 100%; aspect-ratio: 5 / 4; max-width: 100%;
+    clip-path: polygon(9% 0, 91% 0, 100% 11%, 100% 89%, 91% 100%, 9% 100%, 0 89%, 0 11%);
+    touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+  .stage.dragging { cursor: grabbing; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .vignette { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 72% 78% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 88%, rgba(0,0,0,0.85) 100%); }
+  .fade { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 50%, #fffaf2 0%, #f6e3d2 60%, #e9c9b3 100%); }
+  .st-rec { position: absolute; top: 5.5%; left: 12%; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; display: flex; align-items: center; gap: 7px; color: #f3efe6; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .st-rec i { width: 7px; height: 7px; border-radius: 50%; background: var(--live); box-shadow: 0 0 6px var(--live); }
+  .st-rec.paused i { background: var(--accent); box-shadow: none; }
+  .st-scale { position: absolute; top: 5.5%; right: 12%; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: #f3efe6; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  .st-cap { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%); font-family: var(--mono); font-size: clamp(12px, 1.6vw, 15px); letter-spacing: 0.16em; text-transform: uppercase; color: #fff8ea; background: rgba(0,0,0,0.45); padding: 6px 12px; white-space: nowrap; opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
+  .st-cap.show { opacity: 1; }
+  .st-hint { position: absolute; right: 12%; bottom: 5.5%; font-family: var(--mono); font-size: 10.5px; color: rgba(243,239,230,0.7); letter-spacing: 0.08em; pointer-events: none; transition: opacity 0.8s; }
+  .st-load, .st-end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 16px; }
+  .st-load { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--dim); background: #000; }
+  .st-end { background: rgba(20, 12, 8, 0.28); color: #2a1a12; }
+  .st-end h2 { margin: 0; font-size: clamp(22px, 3vw, 32px); font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; }
+  .st-end p { margin: 0; max-width: 34ch; font-size: 15px; color: #4d3326; }
+  .st-end button { background: #2a1a12; color: #fbeee2; border: 0; padding: 10px 18px; font-weight: 600; cursor: pointer; }
+
+  /* Findings panel */
+  .info { min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+  .eyebrow { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .info h1 { margin: 0; font-size: 34px; line-height: 1.05; font-weight: 700; letter-spacing: 0.005em; text-wrap: balance; }
+  .latin { margin: 0; color: var(--tissue); font-size: 16px; font-weight: 500; }
+  .desc { margin: 4px 0 0; color: #d4cfc4; max-width: 65ch; }
+  .info h2 { margin: 10px 0 0; font-family: var(--mono); font-weight: 400; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .checks li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; align-items: baseline; font-size: 15px; }
+  .checks li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--live); transform: translateY(-1px); }
+  .note { margin: auto 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+
+  /* Transport + route */
+  .bar { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: center; }
+  .ctrls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn { background: var(--panel); border: 1px solid var(--line); height: 38px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 15px; }
+  .btn:hover { border-color: #39423f; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); width: 44px; padding: 0; justify-content: center; }
+  .btn svg { width: 16px; height: 16px; fill: currentColor; }
+  .speed { display: flex; border: 1px solid var(--line); height: 38px; }
+  .speed button { background: var(--panel); border: 0; padding: 0 11px; cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .speed button + button { border-left: 1px solid var(--line); }
+  .speed button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); }
+  .strip { display: flex; height: 38px; gap: 2px; min-width: 0; }
+  .strip button { position: relative; flex-basis: 0; min-width: 0; border: 0; padding: 0 6px; cursor: pointer; background: var(--panel); color: var(--dim); font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; overflow: hidden; white-space: nowrap; text-overflow: clip; text-align: left; }
+  .strip button.sb { box-shadow: inset 0 -2px 0 #6b4a3a; }
+  .strip button.lb { box-shadow: inset 0 -2px 0 #8a5a48; }
+  .strip button .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(241, 180, 58, 0.18); pointer-events: none; }
+  .strip button.done { color: #bdb6aa; background: #141a1b; }
+  .strip button.done .fill { width: 100%; background: rgba(241, 180, 58, 0.07); }
+  .strip button.on { color: var(--accent); }
+  .strip button span { position: relative; }
+
+  @media (max-width: 1100px) {
+    .main { grid-template-columns: 170px minmax(0, 1fr) 260px; gap: 16px; }
+    .info h1 { font-size: 28px; }
+  }
+  @media (max-width: 860px) {
+    html, body { height: auto; }
+    .app { height: auto; min-height: 100%; grid-template-rows: auto auto; }
+    .main { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+    .stage-wrap { order: 1; }
+    .hud { order: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; padding: 0; }
+    .hud-brand, .hud-meta { display: none; }
+    .hud-clock { grid-column: 1 / -1; color: var(--dim); }
+    .hud-data { display: contents; }
+    .info { order: 3; overflow: visible; }
+    .bar { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .strip { height: 30px; }
+    .strip button { font-size: 0; padding: 0; }
+    .strip button.on { font-size: 0; }
+    .st-hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .st-cap { transition: none; }
+  }
+</style>
+
+<div class="app">
+  <div class="main">
+    <aside class="hud" aria-label="Monitör bilgileri">
+      <div class="hud-brand">KAPSÜL<br>ENDOSKOPİ</div>
+      <div class="hud-meta"><span>HD 1080 · 30 fps</span><span>WLI · beyaz ışık</span><span>Ağızdan makata</span></div>
+      <div class="hud-clock" id="clock">--.--.---- --:--:--</div>
+      <dl class="hud-data">
+        <div><dt>Bölge</dt><dd class="seg" id="hSeg">Duodenum</dd></div>
+        <div><dt>Katedilen</dt><dd id="hDone">0 cm</dd></div>
+        <div><dt>Makata kalan</dt><dd id="hLeft">7,9 m</dd></div>
+        <div><dt>Süre</dt><dd id="hTime">00:00</dd></div>
+      </dl>
+    </aside>
+
+    <div class="stage-wrap" id="wrap">
+      <div class="stage" id="stage" aria-label="Bağırsak içi canlandırma görüntüsü" role="img">
+        <canvas id="gl"></canvas>
+        <div class="vignette"></div>
+        <div class="fade" id="fade"></div>
+        <div class="st-rec" id="rec"><i></i><span id="recTxt">CANLI</span></div>
+        <div class="st-scale">×1.0 · 140°</div>
+        <div class="st-cap" id="cap"></div>
+        <div class="st-hint" id="hint">Sürükle: kamera ucunu çevir</div>
+        <div class="st-load" id="load">GÖRÜNTÜ HAZIRLANIYOR…</div>
+        <div class="st-end" id="end" hidden>
+          <h2>Makat çıkışı</h2>
+          <p>Yaklaşık 7,9 metrelik yolculuk tamamlandı: ince bağırsak, kalın bağırsak, rektum ve anal kanal.</p>
+          <button id="again" type="button">Baştan izle</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="info" aria-live="polite">
+      <p class="eyebrow" id="iStep">Bölge 1 / 13</p>
+      <h1 id="iName">Duodenum</h1>
+      <p class="latin" id="iSub">Onikiparmak bağırsağı</p>
+      <p class="desc" id="iDesc"></p>
+      <h2>Sağlıklı görünüm</h2>
+      <ul class="checks" id="iChecks"></ul>
+      <p class="note">Bilgisayarla üretilmiş temsili bir canlandırmadır, gerçek hasta kaydı değildir. Mesafeler kısaltılmıştır: ince bağırsak yaklaşık 6 m, kalın bağırsak yaklaşık 1,5 m uzunluğundadır.</p>
+    </section>
+  </div>
+
+  <footer class="bar">
+    <div class="ctrls">
+      <button class="btn primary" id="play" type="button" aria-label="Duraklat">
+        <svg viewBox="0 0 16 16" id="icoPause"><rect x="3" y="2" width="3.5" height="12"/><rect x="9.5" y="2" width="3.5" height="12"/></svg>
+        <svg viewBox="0 0 16 16" id="icoPlay" hidden><path d="M4 2l10 6-10 6z"/></svg>
+      </button>
+      <button class="btn" id="restart" type="button">Baştan</button>
+      <div class="speed" role="group" aria-label="Hız" id="speed">
+        <button type="button" data-v="0.5" aria-pressed="false">0.5×</button>
+        <button type="button" data-v="1" aria-pressed="true">1×</button>
+        <button type="button" data-v="2" aria-pressed="false">2×</button>
+        <button type="button" data-v="4" aria-pressed="false">4×</button>
+      </div>
+    </div>
+    <nav class="strip" id="strip" aria-label="Bölgeye atla"></nav>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Route data ----------
+  // s = path units in the 3D tunnel; cm = real anatomical length used for the distance readout.
+  const SEGS = [
+    { id: "duo", s0: 0,   s1: 22,  cm: 25,  big: false, short: "Duodenum", name: "Duodenum", sub: "Onikiparmak bağırsağı",
+      desc: "Mide çıkışından sonraki ilk 25 cm. Mukoza kadifemsi, açık somon-pembe renktedir ve dairesel Kerckring katlantıları burada başlar. Vater papillası küçük bir tümsek olarak görülür; safra ve pankreas salgısı buradan boşalır, bu yüzden hafif sarımsı bir parlaklık normaldir.",
+      checks: ["Kadifemsi villus yüzeyi", "Açık somon-pembe renk", "Hafif safra sarısı, kanama yok"] },
+    { id: "jej", s0: 22,  s1: 88,  cm: 250, big: false, short: "Jejunum", name: "Jejunum", sub: "İnce bağırsağın orta bölümü",
+      desc: "Emilimin en yoğun olduğu kısım. Kerckring katlantıları en sık ve en yüksek haliyle art arda dizilir, bazıları tam halka, bazıları yarım ay şeklindedir. Yüzeydeki milyonlarca villus görüntüye kadife dokusunu verir.",
+      checks: ["Sık ve yüksek halka katlantılar", "Düzgün, kesintisiz mukoza", "Ülser, kanama veya daralma yok"] },
+    { id: "ile", s0: 88,  s1: 148, cm: 350, big: false, short: "İleum", name: "İleum", sub: "İnce bağırsağın son bölümü",
+      desc: "İnce bağırsağın en uzun parçası. Katlantılar seyrekleşir ve alçalır, lümen biraz daralır. Açık renkli, oval Peyer plakları bağışıklık sistemine ait lenfoid dokudur ve sağlıklı ileumun doğal bir parçasıdır.",
+      checks: ["Seyrekleşen, alçak katlantılar", "Oval, açık renkli Peyer plakları", "Düzgün villus yüzeyi"] },
+    { id: "icv", s0: 148, s1: 156, cm: 2,   big: false, short: "Valv", name: "İleoçekal valv", sub: "Bauhin kapağı",
+      desc: "İnce bağırsağı kalın bağırsaktan ayıran, dudak şeklinde kapak. Kalın bağırsak içeriğinin geri kaçmasını engeller. Sağlıklı valvin dudakları yumuşak, pembe ve simetriktir; açıklık yarık şeklindedir.",
+      checks: ["Simetrik, yumuşak dudaklar", "Yarık şeklinde açıklık", "Şişlik veya ülser yok"] },
+    { id: "cec", s0: 156, s1: 168, cm: 6,   big: true, short: "Çekum", name: "Çekum", sub: "Kör bağırsak",
+      desc: "Kalın bağırsağın başındaki geniş, kör kese. Burada villus yoktur; yüzey daha düz, parlak ve damarlar belirgindir. Apendiks ağzı duvarda küçük, hilal biçimli bir çukur olarak görülür.",
+      checks: ["Geniş, kör kese yapısı", "Hilal biçimli apendiks ağzı", "Parlak, damarlı yüzey"] },
+    { id: "asc", s0: 168, s1: 206, cm: 20,  big: true, short: "Çıkan", name: "Çıkan kolon", sub: "Colon ascendens",
+      desc: "Karnın sağ tarafında yukarı doğru uzanır. Duvardaki üç şerit kas (tenya koli) arasında hilal biçimli haustral katlantılar sıralanır. Sağlıklı mukozada ince, dallanan kan damarları net seçilir.",
+      checks: ["Hilal biçimli haustral katlantılar", "Üç tenya koli şeridi", "Net, dallanan damar ağı"] },
+    { id: "hep", s0: 206, s1: 216, cm: 5,   big: true, short: "Hep.", name: "Hepatik fleksura", sub: "Sağ kolon köşesi",
+      desc: "Karaciğerin hemen altındaki keskin dönüş. Duvarın arkasındaki karaciğer, mukozanın içinden mavimsi-mor bir gölge olarak görülebilir. Bu görüntü normaldir.",
+      checks: ["Karaciğerin mavimsi gölgesi", "Keskin ama düzgün dönüş", "Damar deseni korunmuş"] },
+    { id: "tra", s0: 216, s1: 268, cm: 45,  big: true, short: "Transvers", name: "Transvers kolon", sub: "Colon transversum",
+      desc: "Karnın üst kısmında sağdan sola uzanan, kolonun en uzun ve en hareketli bölümü. Üç tenya kolinin oluşturduğu üçgen lümen kesiti bu bölgenin tipik işaretidir.",
+      checks: ["Üçgen lümen kesiti", "Derin haustral katlantılar", "Parlak, nemli mukoza"] },
+    { id: "spl", s0: 268, s1: 278, cm: 5,   big: true, short: "Spl.", name: "Splenik fleksura", sub: "Sol kolon köşesi",
+      desc: "Dalağın yanında, kolonun en yüksek ve en keskin dönüşü. Dalak da duvarın ardından hafif mavimsi bir iz bırakabilir.",
+      checks: ["Kolonun en keskin dönüşü", "Dalağın hafif mavi izi", "Düzgün katlantılar"] },
+    { id: "des", s0: 278, s1: 316, cm: 25,  big: true, short: "İnen", name: "İnen kolon", sub: "Colon descendens",
+      desc: "Karnın sol tarafında aşağı iner. Lümen biraz daha dar ve düzdür, haustral katlantılar daha seyrektir. Burada dışkı katılaşmaya başlar.",
+      checks: ["Daha dar, düz lümen", "Seyrek haustralar", "Net damar ağı"] },
+    { id: "sig", s0: 316, s1: 360, cm: 40,  big: true, short: "Sigmoid", name: "Sigmoid kolon", sub: "Colon sigmoideum",
+      desc: "S harfi gibi kıvrılan, hareketli bölüm. Kas tabakası kalındır, katlantılar sık ve belirgindir. Kolonoskopide en çok dönüş gerektiren kısım budur.",
+      checks: ["S biçimli kıvrımlar", "Sık, belirgin katlantılar", "Polip veya divertikül yok"] },
+    { id: "rec", s0: 360, s1: 392, cm: 13,  big: true, short: "Rektum", name: "Rektum", sub: "Düz bağırsak",
+      desc: "Son 12 ila 15 cm. Haustralar kaybolur ve lümen genişleyerek rektal ampullayı oluşturur. Üç yarım ay şeklindeki Houston valvi ve yüzeye yakın belirgin damar ağı görülür.",
+      checks: ["Haustra yok, geniş ampulla", "Üç Houston valvi", "Belirgin, düzenli damar ağı"] },
+    { id: "ana", s0: 392, s1: 402, cm: 4,   big: true, short: "Anal", name: "Anal kanal", sub: "Makat çıkışı",
+      desc: "Yaklaşık 4 cm'lik son bölüm. Morgagni sütunları denen boyuna kıvrımlar ve herkeste bulunan normal hemoroidal yastıklar buradadır. Dentat çizgide mukoza koyu pembeden açık renkli anal deriye geçer, ardından dış açıklık gelir.",
+      checks: ["Boyuna Morgagni sütunları", "Normal hemoroidal yastıklar", "Dentat çizgide renk geçişi"] }
+  ];
+  const END_S = 405;
+  const TOTAL_CM = SEGS.reduce((a, g) => a + g.cm, 0);
+
+  const $ = (id) => document.getElementById(id);
+  const TAU = Math.PI * 2;
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const band = (s, a, b, h) => sstep(a - h, a + h, s) * (1 - sstep(b - h, b + h, s));
+  const angDist = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+  function keyed(keys, s) {
+    if (s <= keys[0][0]) return keys[0][1];
+    for (let i = 1; i < keys.length; i++) {
+      if (s <= keys[i][0]) {
+        const a = keys[i - 1], b = keys[i];
+        const t = (s - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * t * t * (3 - 2 * t);
+      }
+    }
+    return keys[keys.length - 1][1];
+  }
+  function rng(seed) { let a = seed >>> 0; return function () { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- Anatomy: lumen radius and wall features ----------
+  const R_KEYS = [[0, 1.2], [20, 1.25], [30, 1.3], [85, 1.25], [95, 1.15], [145, 1.05], [149, 1.0], [152, 0.5], [154.5, 1.5],
+    [158, 2.4], [166, 2.3], [172, 2.05], [206, 1.95], [216, 1.9], [268, 1.85], [278, 1.7], [316, 1.55], [322, 1.45], [356, 1.4],
+    [364, 2.1], [372, 2.35], [386, 2.2], [391, 1.6], [394, 0.9], [396, 0.55], [400, 0.5], [401.5, 0.7], [404, 3], [410, 8]];
+  const SB_AMP = [[0, 0.2], [18, 0.24], [28, 0.34], [80, 0.33], [100, 0.24], [146, 0.1], [150, 0]];
+  const SB_PER = [[0, 0.46], [25, 0.5], [85, 0.55], [146, 0.85]];
+  const H_AMP = [[156, 0.1], [168, 0.22], [206, 0.22], [216, 0.28], [268, 0.26], [278, 0.2], [316, 0.17], [324, 0.24], [356, 0.22], [362, 0]];
+  const VALVES = [{ s: 373, th: 0.6, a: 0.36 }, { s: 380.5, th: 0.6 + Math.PI, a: 0.46 }, { s: 387, th: 1.0, a: 0.32 }];
+  const PEYER = [{ s: 108, th: 1.0 }, { s: 121, th: 4.0 }, { s: 133, th: 2.2 }, { s: 142, th: 5.2 }];
+  const CUSH = [0.35, 2.45, 4.25];
+
+  const rk = rng(7);
+  const KF = []; for (let i = 0; i < 2048; i++) KF.push({ c: rk() * TAU, cut: rk() < 0.45 ? -2 : -0.55 + rk() * 0.9, a: 0.7 + rk() * 0.55 });
+  const HA = []; for (let i = 0; i < 2048; i++) HA.push(0.75 + rk() * 0.5);
+
+  const radiusAt = (s) => keyed(R_KEYS, s);
+
+  function ringContext(s, phK, phH) {
+    return {
+      s, phK, phH,
+      R: radiusAt(s),
+      wSB: band(s, -10, 150, 2), aSB: keyed(SB_AMP, s),
+      wH: band(s, 157, 362, 3), aH: keyed(H_AMP, s),
+      tw: 0.4 + 0.003 * s,
+      wT: band(s, 220, 264, 5),
+      wC: band(s, 393.5, 397.4, 0.7),
+      wCu: band(s, 392.5, 397.5, 1.4),
+      wI: Math.exp(-Math.pow((s - 152) / 1.3, 2))
+    };
+  }
+
+  let FOLD = 0;
+  function wallRadius(g, th) {
+    const s = g.s;
+    let r = g.R, fold = 0;
+    if (g.wSB > 0.001) {
+      const ph = g.phK + 0.12 * Math.sin(th + g.phK * 0.37);
+      const k = Math.floor(ph), f = ph - k;
+      const P = KF[k & 2047];
+      const m = sstep(P.cut - 0.35, P.cut + 0.35, Math.cos(th - P.c));
+      fold += g.wSB * g.aSB * P.a * m * Math.pow(Math.sin(Math.PI * f), 5);
+      for (const p of PEYER) {
+        const ds = s - p.s; if (Math.abs(ds) > 3) continue;
+        const d = angDist(th, p.th);
+        fold += 0.035 * Math.exp(-(ds * ds) / 1.2 - (d * d) / 0.12);
+      }
+      if (Math.abs(s - 10) < 2) { const d = angDist(th, 2.0); fold += 0.22 * Math.exp(-((s - 10) * (s - 10)) / 0.08 - (d * d) / 0.03); }
+    }
+    if (g.wH > 0.001) {
+      const a = th - g.tw;
+      const sa = Math.abs(Math.sin(1.5 * a));
+      const sec = Math.floor((((a % TAU) + TAU) % TAU) / (TAU / 3));
+      const ph = g.phH + sec / 3 + 0.12 * sa;
+      const k = Math.floor(ph), f = ph - k;
+      fold += g.wH * g.aH * HA[(k * 3 + sec) & 2047] * Math.pow(sa, 0.8) * Math.pow(Math.sin(Math.PI * f), 3);
+      fold += g.wH * 0.035 * Math.pow(Math.abs(Math.cos(1.5 * a)), 24);
+      if (g.wT > 0) r *= 1 + 0.13 * g.wT * Math.cos(3 * a);
+    }
+    if (s > 368 && s < 392) {
+      for (const v of VALVES) {
+        const c = Math.cos(th - v.th); if (c <= 0) continue;
+        const ds = s - v.s - 0.45 * (1 - c);
+        if (Math.abs(ds) > 2) continue;
+        fold += v.a * Math.pow(c, 1.3) * Math.exp(-(ds * ds) / 0.32);
+      }
+    }
+    if (g.wC > 0.001) fold += g.wC * 0.2 * Math.pow(0.5 + 0.5 * Math.cos(8 * th + 0.3), 2);
+    if (g.wCu > 0.001) for (const c of CUSH) { const d = angDist(th, c); fold += g.wCu * 0.2 * Math.exp(-(d * d) / 0.35); }
+    if (g.wI > 0.001) r *= 1 + 0.28 * g.wI * Math.cos(2 * th);
+    if (Math.abs(s - 161) < 2) { const d = angDist(th, 4.1); fold -= 0.2 * Math.exp(-(d * d) / 0.02 - ((s - 161) * (s - 161)) / 0.3); }
+    r *= 1 + 0.035 * Math.sin(3 * th + s * 0.9) * Math.sin(s * 0.37 + 2 * th) + 0.02 * Math.sin(5 * th - s * 1.3);
+    FOLD = fold;
+    return r * (1 - fold);
+  }
+
+  // Multiplicative vertex tint: bile, Peyer's patches, organ shadows, anal canal colour zones.
+  const TINT = [1, 1, 1];
+  function tintAt(s, th, fold) {
+    let r = 1, g = 1, b = 1;
+    const mix = (tr, tg, tb, w) => { r = lerp(r, tr, w); g = lerp(g, tg, w); b = lerp(b, tb, w); };
+    mix(1.02, 0.92, 0.72, 0.55 * (1 - sstep(16, 30, s)));
+    if (s > 100 && s < 146) for (const p of PEYER) { const ds = s - p.s, d = angDist(th, p.th); mix(1.2, 1.1, 0.95, 0.7 * Math.exp(-(ds * ds) / 1.2 - (d * d) / 0.12)); }
+    mix(1.04, 0.97, 0.86, band(s, 154, 166, 3) * 0.5);
+    mix(0.62, 0.72, 1.05, 0.6 * band(s, 204, 218, 3) * Math.exp(-Math.pow(angDist(th, 1.1), 2) / 0.5));
+    mix(0.72, 0.78, 1.05, 0.4 * band(s, 266, 280, 3) * Math.exp(-Math.pow(angDist(th, 4.4), 2) / 0.5));
+    mix(1.05, 0.93, 0.93, band(s, 362, 392, 3) * 0.6);
+    mix(0.8, 0.52, 0.6, band(s, 392.5, 397.4, 0.8));
+    mix(1.05, 0.88, 0.82, band(s, 397.8, 401.4, 0.35));
+    mix(1.08, 0.84, 0.72, sstep(401.2, 402.5, s));
+    const lift = 1 + 0.2 * Math.min(fold, 0.5);
+    TINT[0] = r * lift; TINT[1] = g * lift; TINT[2] = b * lift;
+  }
+
+  // ---------- Centreline path ----------
+  const up = (a, h, s) => sstep(a - h, a + h, s);
+  function rotY(x, y, z, a) { const c = Math.cos(a), sn = Math.sin(a); return [x * c + z * sn, y, -x * sn + z * c]; }
+  const SECTIONS = [
+    { a: -1e9, f: (s) => { const yaw = 0.85 * Math.sin(TAU * s / 38) + 0.25 * Math.sin(TAU * s / 13 + 1); const p = 0.4 * Math.sin(TAU * s / 27 + 0.5);
+      return [Math.sin(yaw) * Math.cos(p), Math.sin(p), -Math.cos(yaw) * Math.cos(p)]; } },
+    { a: 150, f: () => [0, 0.75, -0.65] },
+    { a: 160, f: (s) => [0.12 * Math.sin(s * 0.2), 1, 0.1 * Math.sin(s * 0.13)] },
+    { a: 208, f: () => [0.75, 0.6, 0] },
+    { a: 214, f: (s) => [1, -0.4 * Math.cos(Math.PI * (s - 214) / 56), 0.12 * Math.sin(s * 0.15)] },
+    { a: 270, f: () => [0.35, -0.7, 0.25] },
+    { a: 276, f: (s) => [0.1 * Math.sin(s * 0.17), -1, 0.1] },
+    { a: 316, f: (s) => rotY(-1, -0.35, 0, 1.0 * Math.sin(TAU * (s - 316) / 30)) },
+    { a: 360, f: (s) => [0.05, -1, 0.5 - 0.8 * (s - 360) / 32] },
+    { a: 392, f: () => [0, -0.6, -1] }
+  ];
+  function dirAt(s) {
+    let x = 0, y = 0, z = 0;
+    for (let i = 0; i < SECTIONS.length; i++) {
+      const w = (i === 0 ? 1 : up(SECTIONS[i].a, 4, s)) - (i + 1 < SECTIONS.length ? up(SECTIONS[i + 1].a, 4, s) : 0);
+      if (w <= 0) continue;
+      const v = SECTIONS[i].f(s); const l = Math.hypot(v[0], v[1], v[2]);
+      x += w * v[0] / l; y += w * v[1] / l; z += w * v[2] / l;
+    }
+    const l = Math.hypot(x, y, z); return [x / l, y / l, z / l];
+  }
+  const PS = 0.5, PMAX = 420;
+  const PTS = [[0, 0, 0]];
+  for (let s = 0; s < PMAX; s += PS) {
+    const d = dirAt(s + PS / 2), p = PTS[PTS.length - 1];
+    PTS.push([p[0] + d[0] * PS, p[1] + d[1] * PS, p[2] + d[2] * PS]);
+  }
+  function pathPos(s, out) {
+    const u = clamp(s, 0, PMAX - PS) / PS;
+    const i = Math.floor(u), t = u - i;
+    const p0 = PTS[Math.max(0, i - 1)], p1 = PTS[i], p2 = PTS[Math.min(PTS.length - 1, i + 1)], p3 = PTS[Math.min(PTS.length - 1, i + 2)];
+    const t2 = t * t, t3 = t2 * t;
+    for (let k = 0; k < 3; k++) {
+      out[k] = 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
+    }
+    return out;
+  }
+  const _a = [0, 0, 0], _b = [0, 0, 0];
+  function tangentAt(s) {
+    pathPos(s + 0.03, _a); pathPos(s - 0.03, _b);
+    const x = _a[0] - _b[0], y = _a[1] - _b[1], z = _a[2] - _b[2], l = Math.hypot(x, y, z);
+    return [x / l, y / l, z / l];
+  }
+
+  // ---------- Procedural mucosa textures ----------
+  function hash2(ix, iy, seed) {
+    let h = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(seed, 1442695041)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296;
+  }
+  function vnoise(x, y, per, seed) {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const x0 = ((ix % per) + per) % per, x1 = (x0 + 1) % per, y0 = ((iy % per) + per) % per, y1 = (y0 + 1) % per;
+    return lerp(lerp(hash2(x0, y0, seed), hash2(x1, y0, seed), ux), lerp(hash2(x0, y1, seed), hash2(x1, y1, seed), ux), uy);
+  }
+  function fbm(u, v, base, oct, seed) {
+    let sum = 0, amp = 0.5, norm = 0, f = base;
+    for (let o = 0; o < oct; o++) { sum += amp * vnoise(u * f, v * f, f, seed + o * 17); norm += amp; amp *= 0.5; f *= 2; }
+    return sum / norm;
+  }
+  function normalFromHeight(H, S, strength) {
+    const c = document.createElement("canvas"); c.width = c.height = S;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(S, S), d = img.data;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const xl = (x - 1 + S) % S, xr = (x + 1) % S, yu = (y - 1 + S) % S, yd = (y + 1) % S;
+      const dx = (H[y * S + xr] - H[y * S + xl]) * strength, dy = (H[yd * S + x] - H[yu * S + x]) * strength;
+      const l = Math.hypot(dx, dy, 1), i = (y * S + x) * 4;
+      d[i] = (-dx / l * 0.5 + 0.5) * 255; d[i + 1] = (dy / l * 0.5 + 0.5) * 255; d[i + 2] = (1 / l * 0.5 + 0.5) * 255; d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0); return c;
+  }
+
+  // Small bowel: dense villi (velvet), salmon-pink.
+  function genSmallBowel(S) {
+    const c = document.createElement("canvas"); c.width = c.height = S;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(S, S), d = img.data;
+    const cell = 8, n = S / cell, r = rng(21);
+    const jx = new Float32Array(n * n), jy = new Float32Array(n * n);
+    for (let i = 0; i < n * n; i++) { jx[i] = (0.2 + 0.6 * r()) * cell; jy[i] = (0.2 + 0.6 * r()) * cell; }
+    const H = new Float32Array(S * S), rad = cell * 0.66;
+    for (let y = 0; y < S; y++) {
+      const cy = Math.floor(y / cell);
+      for (let x = 0; x < S; x++) {
+        const cx = Math.floor(x / cell);
+        let best = 1e9;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+          const gx = (cx + ox + n) % n, gy = (cy + oy + n) % n, gi = gy * n + gx;
+          const px = (cx + ox) * cell + jx[gi], py = (cy + oy) * cell + jy[gi];
+          const dd = (x - px) * (x - px) + (y - py) * (y - py); if (dd < best) best = dd;
+        }
+        const q = Math.sqrt(best) / rad, h = Math.max(0, 1 - q * q);
+        const lo = fbm(x / S, y / S, 4, 3, 11), mid = fbm(x / S, y / S, 32, 2, 31);
+        H[y * S + x] = h * (0.8 + 0.4 * mid);
+        const shade = 0.42 + 0.55 * h;
+        const i = (y * S + x) * 4;
+        d[i] = clamp((198 + 40 * lo) * shade + 10 * h * h, 0, 255);
+        d[i + 1] = clamp((112 + 34 * lo) * shade + 12 * h * h, 0, 255);
+        d[i + 2] = clamp((94 + 20 * lo) * shade + 8 * h * h, 0, 255);
+        d[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return { map: c, normal: normalFromHeight(H, S, 2.2) };
+  }
+
+  // Colon: smooth glossy pink mucosa, innominate grooves, branching submucosal vessels.
+  function genColon(S) {
+    const c = document.createElement("canvas"); c.width = c.height = S;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(S, S), d = img.data;
+    const H = new Float32Array(S * S);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+      const lo = fbm(u, v, 3, 4, 5);
+      const g = fbm(u, v, 20, 2, 9), ridge = 1 - Math.abs(2 * g - 1);
+      const groove = sstep(0.86, 0.97, ridge);
+      const fine = fbm(u, v, 96, 1, 13);
+      H[y * S + x] = -groove * 0.9 + fine * 0.25;
+      const k = 1 - 0.13 * groove + 0.04 * (fine - 0.5);
+      const i = (y * S + x) * 4;
+      d[i] = (224 + 22 * lo) * k; d[i + 1] = (136 + 30 * lo) * k; d[i + 2] = (118 + 26 * lo) * k; d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    const r = rng(99), lines = [];
+    function grow(x, y, ang, w, len, depth) {
+      const pts = [[x, y]];
+      for (let i = 0; i < len; i++) {
+        ang += (r() - 0.5) * 0.55; x += Math.cos(ang) * 6; y += Math.sin(ang) * 6; pts.push([x, y]);
+        if (depth < 4 && r() < 0.07) grow(x, y, ang + (r() < 0.5 ? 1 : -1) * (0.5 + r() * 0.8), w * 0.62, Math.floor(len * 0.55), depth + 1);
+      }
+      lines.push({ pts, w });
+    }
+    for (let i = 0; i < 8; i++) grow(r() * S, r() * S, r() * TAU, 2.4 + r() * 1.3, 55 + Math.floor(r() * 60), 0);
+    const caps = [];
+    for (let i = 0; i < 160; i++) { let x = r() * S, y = r() * S, a = r() * TAU; const pts = [[x, y]]; for (let k = 0; k < 10; k++) { a += (r() - 0.5) * 1.2; x += Math.cos(a) * 5; y += Math.sin(a) * 5; pts.push([x, y]); } caps.push(pts); }
+    // Vessels go on their own layer, then get one soft blur while compositing onto the mucosa.
+    const vc = document.createElement("canvas"); vc.width = vc.height = S;
+    const vx = vc.getContext("2d");
+    vx.lineCap = "round"; vx.lineJoin = "round";
+    lines.sort((a, b) => a.w - b.w);
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      vx.save(); vx.translate(ox * S, oy * S);
+      vx.strokeStyle = "rgba(176,70,72,0.16)"; vx.lineWidth = 0.9;
+      for (const pts of caps) { vx.beginPath(); vx.moveTo(pts[0][0], pts[0][1]); for (const p of pts) vx.lineTo(p[0], p[1]); vx.stroke(); }
+      for (const L of lines) {
+        vx.strokeStyle = "rgba(" + Math.round(150 - L.w * 6) + "," + Math.round(40 - L.w * 3) + ",52," + (0.2 + L.w * 0.07).toFixed(2) + ")";
+        vx.lineWidth = L.w;
+        vx.beginPath(); vx.moveTo(L.pts[0][0], L.pts[0][1]); for (const p of L.pts) vx.lineTo(p[0], p[1]); vx.stroke();
+      }
+      vx.restore();
+    }
+    if ("filter" in ctx) ctx.filter = "blur(0.7px)";
+    ctx.drawImage(vc, 0, 0);
+    if ("filter" in ctx) ctx.filter = "none";
+    return { map: c, normal: normalFromHeight(H, S, 1.4) };
+  }
+
+  // ---------- Three.js scene ----------
+  let renderer, scene, camera, U;
+  const ringS = [], ringN = [];
+
+  function build() {
+    const canvas = $("gl");
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.setClearColor(0x000000);
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000000, 0.085);
+    camera = new THREE.PerspectiveCamera(88, 1.25, 0.01, 60);
+    scene.add(camera);
+    const spot = new THREE.SpotLight(0xfff3e6, 2.3, 15, 1.2, 0.8, 2);
+    camera.add(spot); spot.position.set(0, 0, 0); spot.target.position.set(0, 0, -1); camera.add(spot.target);
+    const fill = new THREE.PointLight(0xffe6dc, 0.7, 6, 2); camera.add(fill);
+    scene.add(new THREE.AmbientLight(0x40160f, 0.35));
+
+    const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const mkTex = (canvas, srgb) => { const t = new THREE.CanvasTexture(canvas); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; if (srgb) t.encoding = THREE.sRGBEncoding; return t; };
+    const sb = genSmallBowel(1024), co = genColon(1024);
+
+    U = { uTime: { value: 0 }, uAmp: { value: reduceMotion ? 0 : 0.055 } };
+    const peristalsis = (m) => {
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uTime = U.uTime; sh.uniforms.uAmp = U.uAmp;
+        sh.vertexShader = "attribute float aS;\nuniform float uTime;\nuniform float uAmp;\n" + sh.vertexShader.replace(
+          "#include <begin_vertex>",
+          "#include <begin_vertex>\nfloat pw = 0.5 + 0.5 * sin(aS * 0.7 - uTime * 1.7);\ntransformed += normal * uAmp * pw * pw;");
+      };
+      return m;
+    };
+    const matSB = peristalsis(new THREE.MeshPhysicalMaterial({ map: mkTex(sb.map, true), normalMap: mkTex(sb.normal, false), normalScale: new THREE.Vector2(0.75, 0.75),
+      roughness: 0.6, metalness: 0, clearcoat: 0.55, clearcoatRoughness: 0.32, vertexColors: true }));
+    const matCO = peristalsis(new THREE.MeshPhysicalMaterial({ map: mkTex(co.map, true), normalMap: mkTex(co.normal, false), normalScale: new THREE.Vector2(0.4, 0.4),
+      roughness: 0.42, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.1, vertexColors: true }));
+
+    // Rings along the centreline, denser in the small bowel where folds are thin.
+    const M = 64;
+    let s = 0, phK = 0, phH = 0;
+    const T = [], N = [], B = [];
+    while (s <= 410) { ringS.push(s); s += s < 152 ? 0.035 : 0.08; }
+    const nR = ringS.length;
+    const pos = new Float32Array(nR * M * 3), col = new Float32Array(nR * M * 3);
+    const P = [0, 0, 0];
+    let n0 = null;
+    for (let i = 0; i < nR; i++) {
+      const si = ringS[i];
+      if (i > 0) { const ds = si - ringS[i - 1]; phK += ds / keyed(SB_PER, si); phH += ds / (0.95 * radiusAt(si)); }
+      const t = tangentAt(si);
+      let nn;
+      if (!n0) { nn = [0, 1, 0]; } else { nn = n0; }
+      const dp = nn[0] * t[0] + nn[1] * t[1] + nn[2] * t[2];
+      let nx = nn[0] - t[0] * dp, ny = nn[1] - t[1] * dp, nz = nn[2] - t[2] * dp; const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+      const bx = t[1] * nz - t[2] * ny, by = t[2] * nx - t[0] * nz, bz = t[0] * ny - t[1] * nx;
+      n0 = [nx, ny, nz];
+      ringN.push([nx, ny, nz, bx, by, bz]);
+      pathPos(si, P);
+      const g = ringContext(si, phK, phH);
+      for (let j = 0; j < M; j++) {
+        const th = j / M * TAU, c = Math.cos(th), sn = Math.sin(th);
+        const r = wallRadius(g, th);
+        const k = (i * M + j) * 3;
+        pos[k] = P[0] + r * (nx * c + bx * sn); pos[k + 1] = P[1] + r * (ny * c + by * sn); pos[k + 2] = P[2] + r * (nz * c + bz * sn);
+        tintAt(si, th, FOLD);
+        col[k] = TINT[0]; col[k + 1] = TINT[1]; col[k + 2] = TINT[2];
+      }
+    }
+    // Normals from the grid (tangent along path × tangent around) point into the lumen.
+    const nor = new Float32Array(nR * M * 3);
+    for (let i = 0; i < nR; i++) {
+      const ia = Math.max(0, i - 1), ib = Math.min(nR - 1, i + 1);
+      for (let j = 0; j < M; j++) {
+        const ja = (j - 1 + M) % M, jb = (j + 1) % M;
+        const A = (ib * M + j) * 3, Bq = (ia * M + j) * 3, C = (i * M + jb) * 3, D = (i * M + ja) * 3;
+        const ux = pos[A] - pos[Bq], uy = pos[A + 1] - pos[Bq + 1], uz = pos[A + 2] - pos[Bq + 2];
+        const vx = pos[C] - pos[D], vy = pos[C + 1] - pos[D + 1], vz = pos[C + 2] - pos[D + 2];
+        let x = uy * vz - uz * vy, y = uz * vx - ux * vz, z = ux * vy - uy * vx; const l = Math.hypot(x, y, z) || 1;
+        const k = (i * M + j) * 3; nor[k] = x / l; nor[k + 1] = y / l; nor[k + 2] = z / l;
+      }
+    }
+    // Chunk into meshes so off-screen stretches are culled; split material at the ileocecal valve.
+    const split = ringS.findIndex((v) => v >= 152);
+    const ranges = [];
+    const pushRanges = (a, b, mat, uLen) => { for (let i = a; i < b; i += 360) ranges.push([i, Math.min(b, i + 360), mat, uLen]); };
+    pushRanges(0, split, matSB, 1.8); pushRanges(split, nR - 1, matCO, 7.0);
+    for (const [i0, i1, mat, uLen] of ranges) {
+      const rows = i1 - i0 + 1, cols = M + 1;
+      const p = new Float32Array(rows * cols * 3), n = new Float32Array(rows * cols * 3), cc = new Float32Array(rows * cols * 3);
+      const uv = new Float32Array(rows * cols * 2), as = new Float32Array(rows * cols);
+      for (let r = 0; r < rows; r++) {
+        const gi = i0 + r;
+        for (let j = 0; j < cols; j++) {
+          const src = (gi * M + (j % M)) * 3, dst = (r * cols + j) * 3;
+          p[dst] = pos[src]; p[dst + 1] = pos[src + 1]; p[dst + 2] = pos[src + 2];
+          n[dst] = nor[src]; n[dst + 1] = nor[src + 1]; n[dst + 2] = nor[src + 2];
+          cc[dst] = col[src]; cc[dst + 1] = col[src + 1]; cc[dst + 2] = col[src + 2];
+          uv[(r * cols + j) * 2] = ringS[gi] / uLen; uv[(r * cols + j) * 2 + 1] = j / M * (mat === matSB ? 3 : 2);
+          as[r * cols + j] = ringS[gi];
+        }
+      }
+      const idx = [];
+      for (let r = 0; r < rows - 1; r++) for (let j = 0; j < M; j++) {
+        const a = r * cols + j, b = (r + 1) * cols + j, c = r * cols + j + 1, d = (r + 1) * cols + j + 1;
+        idx.push(a, b, c, b, d, c);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+      geo.setAttribute("normal", new THREE.BufferAttribute(n, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(cc, 3));
+      geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+      geo.setAttribute("aS", new THREE.BufferAttribute(as, 1));
+      geo.setIndex(idx);
+      geo.computeBoundingSphere();
+      scene.add(new THREE.Mesh(geo, mat));
+    }
+  }
+
+  function frameAt(s) {
+    let lo = 0, hi = ringS.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ringS[m] <= s) lo = m; else hi = m; }
+    return ringN[lo];
+  }
+
+  // ---------- Playback state ----------
+  let sCam = 0.3, playing = !reduceMotion, speed = 1, ended = false, elapsed = 0, clockT = 0;
+  let yaw = 0, pitch = 0, yawT = 0, pitchT = 0, lookSmooth = null, segIdx = -1, capTimer = 0;
+  const BASE_V = 4.2;
+  let vP, vL, vUp;
+  const tmp = [0, 0, 0];
+
+  function segAt(s) { for (let i = SEGS.length - 1; i >= 0; i--) if (s >= SEGS[i].s0) return i; return 0; }
+  function realCm(s) {
+    let cm = 0;
+    for (const g of SEGS) { if (s >= g.s1) cm += g.cm; else { if (s > g.s0) cm += g.cm * (s - g.s0) / (g.s1 - g.s0); break; } }
+    return cm;
+  }
+  const fmtLen = (cm) => cm >= 100 ? (cm / 100).toFixed(1).replace(".", ",") + " m" : Math.round(cm) + " cm";
+  const pad = (n) => String(n).padStart(2, "0");
+
+  function updateCamera(dt, t) {
+    const R = radiusAt(sCam);
+    pathPos(sCam, tmp);
+    const f = frameAt(sCam);
+    const wob = reduceMotion ? 0 : 0.07 * R;
+    const a = t * 0.31, w = Math.sin(t * 0.53);
+    const ox = (f[0] * Math.cos(a) + f[3] * Math.sin(a)) * wob * w, oy = (f[1] * Math.cos(a) + f[4] * Math.sin(a)) * wob * w, oz = (f[2] * Math.cos(a) + f[5] * Math.sin(a)) * wob * w;
+    vP.set(tmp[0] + ox, tmp[1] + oy, tmp[2] + oz);
+    pathPos(Math.min(sCam + 1.6 + R * 0.9, PMAX - 1), tmp);
+    const dx = tmp[0] - vP.x, dy = tmp[1] - vP.y, dz = tmp[2] - vP.z, dl = Math.hypot(dx, dy, dz);
+    const want = [dx / dl, dy / dl, dz / dl];
+    if (!lookSmooth) lookSmooth = want.slice();
+    const k = Math.min(1, dt * 3.5);
+    for (let i = 0; i < 3; i++) lookSmooth[i] += (want[i] - lookSmooth[i]) * k;
+    const roll = reduceMotion ? 0 : 0.35 * Math.sin(t * 0.09);
+    vUp.set(f[0] * Math.cos(roll) + f[3] * Math.sin(roll), f[1] * Math.cos(roll) + f[4] * Math.sin(roll), f[2] * Math.cos(roll) + f[5] * Math.sin(roll));
+    camera.position.copy(vP);
+    camera.up.copy(vUp);
+    vL.set(vP.x + lookSmooth[0], vP.y + lookSmooth[1], vP.z + lookSmooth[2]);
+    camera.lookAt(vL);
+    const kk = Math.min(1, dt * 6);
+    yaw += (yawT - yaw) * kk; pitch += (pitchT - pitch) * kk;
+    camera.rotateY(yaw); camera.rotateX(pitch);
+  }
+
+  // ---------- UI ----------
+  const strip = $("strip");
+  SEGS.forEach((g, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = g.big ? "lb" : "sb";
+    b.style.flexGrow = String(g.s1 - g.s0);
+    b.title = g.name; b.setAttribute("aria-label", g.name + " bölgesine atla");
+    b.innerHTML = '<i class="fill"></i><span>' + g.short + "</span>";
+    b.addEventListener("click", () => jumpTo(i));
+    strip.appendChild(b);
+  });
+  const stripBtns = Array.from(strip.children);
+
+  function showSeg(i) {
+    const g = SEGS[i];
+    $("iStep").textContent = "Bölge " + (i + 1) + " / " + SEGS.length;
+    $("iName").textContent = g.name;
+    $("iSub").textContent = g.sub;
+    $("iDesc").textContent = g.desc;
+    $("iChecks").innerHTML = g.checks.map((c) => "<li>" + c + "</li>").join("");
+    $("hSeg").textContent = g.name;
+    const cap = $("cap"); cap.textContent = g.name; cap.classList.add("show");
+    clearTimeout(capTimer); capTimer = setTimeout(() => cap.classList.remove("show"), 3200);
+    stripBtns.forEach((b, k) => { b.classList.toggle("on", k === i); b.classList.toggle("done", k < i); b.firstChild.style.width = ""; });
+  }
+
+  function setPlaying(p) {
+    playing = p;
+    $("icoPause").hidden = !p; $("icoPlay").hidden = p;
+    $("play").setAttribute("aria-label", p ? "Duraklat" : "Oynat");
+    $("rec").classList.toggle("paused", !p);
+    $("recTxt").textContent = p ? "CANLI" : "DURAKLATILDI";
+  }
+
+  function jumpTo(i) {
+    sCam = SEGS[i].s0 + (i === 0 ? 0.3 : 0.2);
+    lookSmooth = null; ended = false; $("end").hidden = true;
+    if (!playing) setPlaying(true);
+  }
+
+  $("play").addEventListener("click", () => { if (ended) { jumpTo(0); return; } setPlaying(!playing); });
+  $("restart").addEventListener("click", () => { elapsed = 0; jumpTo(0); });
+  $("again").addEventListener("click", () => { elapsed = 0; jumpTo(0); });
+  $("speed").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    speed = parseFloat(b.dataset.v);
+    for (const x of $("speed").children) x.setAttribute("aria-pressed", String(x === b));
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); $("play").click(); }
+  });
+
+  const stage = $("stage");
+  let drag = null;
+  stage.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; stage.setPointerCapture(e.pointerId); stage.classList.add("dragging"); $("hint").style.opacity = "0"; });
+  stage.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const w = stage.clientWidth;
+    yawT = clamp(-(e.clientX - drag.x) / w * 2.2, -0.75, 0.75);
+    pitchT = clamp(-(e.clientY - drag.y) / w * 2.2, -0.6, 0.6);
+  });
+  const endDrag = () => { drag = null; yawT = pitchT = 0; stage.classList.remove("dragging"); };
+  stage.addEventListener("pointerup", endDrag); stage.addEventListener("pointercancel", endDrag);
+
+  // Stage sizing: largest 5:4 box that fits (desktop), full width (phone).
+  const wrap = $("wrap"), narrow = window.matchMedia("(max-width: 860px)");
+  function resize() {
+    let w = wrap.clientWidth, h;
+    if (narrow.matches) { h = w / 1.25; }
+    else { const H = wrap.clientHeight; if (w / H > 1.25) w = H * 1.25; h = w / 1.25; }
+    stage.style.width = Math.floor(w) + "px"; stage.style.height = Math.floor(h) + "px";
+    if (renderer) { renderer.setSize(Math.floor(w), Math.floor(h), false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  }
+  new ResizeObserver(resize).observe(wrap);
+
+  function tickClock() {
+    const d = new Date();
+    $("clock").textContent = pad(d.getDate()) + "." + pad(d.getMonth() + 1) + "." + d.getFullYear() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+  tickClock(); setInterval(tickClock, 1000);
+
+  let last = 0, hudT = 0, simT = 0;
+  function loop(now) {
+    const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016; last = now;
+    if (playing && !ended) {
+      const R = radiusAt(sCam);
+      sCam += dt * BASE_V * speed * clamp(R / 1.6, 0.45, 1.15);
+      elapsed += dt;
+      if (sCam >= END_S) { sCam = END_S; ended = true; $("end").hidden = false; setPlaying(false); $("recTxt").textContent = "TAMAMLANDI"; }
+    }
+    simT += dt;
+    U.uTime.value = simT;
+    updateCamera(dt, simT);
+    $("fade").style.opacity = String(sstep(400.6, 404.6, sCam));
+    renderer.render(scene, camera);
+    const si = segAt(sCam);
+    if (si !== segIdx) { segIdx = si; showSeg(si); }
+    if (now - hudT > 120) {
+      hudT = now;
+      const cm = realCm(Math.min(sCam, 402));
+      $("hDone").textContent = fmtLen(cm);
+      $("hLeft").textContent = fmtLen(Math.max(0, TOTAL_CM - cm));
+      $("hTime").textContent = pad(Math.floor(elapsed / 60)) + ":" + pad(Math.floor(elapsed % 60));
+      const g = SEGS[si];
+      stripBtns[si].firstChild.style.width = (clamp((sCam - g.s0) / (g.s1 - g.s0), 0, 1) * 100).toFixed(1) + "%";
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function start() {
+    if (!window.THREE) { $("load").textContent = "3B kütüphanesi yüklenemedi. Sayfayı yenileyin."; return; }
+    vP = new THREE.Vector3(); vL = new THREE.Vector3(); vUp = new THREE.Vector3();
+    try { build(); }
+    catch (e) { $("load").textContent = "Bu cihazda WebGL başlatılamadı."; console.error(e); return; }
+    resize();
+    setPlaying(playing);
+    $("load").hidden = true;
+    if (reduceMotion) $("recTxt").textContent = "HAZIR · OYNAT'A BASIN";
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(() => setTimeout(start, 30));
+})();
+</script>
