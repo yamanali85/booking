@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simultane Çeviri</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #151923;
+    --text: #f4f6fb;
+    --muted: #8a93a6;
+    --accent: #3fb68b;
+    --danger: #e5484d;
+    --interim: #c9cfdb;
+    --font-tr: 44px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 16px; background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; font-weight: 600; }
+  button, select, input {
+    font: inherit; font-size: 14px; color: var(--text);
+    background: #222838; border: 1px solid #2e3548; border-radius: 8px;
+    padding: 7px 12px;
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #04140d; font-weight: 600; }
+  button.primary.on { background: var(--danger); border-color: var(--danger); color: #fff; }
+  #status { margin-left: auto; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: #555; }
+  #dot.live { background: var(--danger); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  #settings { display: none; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: #10141c; align-items: center; font-size: 13px; color: var(--muted); }
+  #settings.open { display: flex; }
+  #settings label { display: flex; gap: 6px; align-items: center; }
+  #apiKey { width: 280px; }
+
+  main { flex: 1; overflow-y: auto; padding: 24px 16px 40px; scroll-behavior: smooth; }
+  .line { max-width: 1200px; margin: 0 auto 22px; }
+  .tr { font-size: var(--font-tr); line-height: 1.25; font-weight: 600; }
+  .ar { direction: rtl; text-align: right; color: var(--muted); font-size: calc(var(--font-tr) * .45); margin-top: 4px; }
+  .line.interim .tr { color: var(--interim); font-weight: 500; }
+  body.hide-ar .ar { display: none; }
+  #empty { color: var(--muted); text-align: center; margin-top: 18vh; font-size: 18px; line-height: 1.6; padding: 0 16px; }
+
+  @media (max-width: 600px) {
+    :root { --font-tr: 28px; }
+    #apiKey { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Arapça → Türkçe</h1>
+  <button id="toggle" class="primary">▶ Başlat</button>
+  <select id="dialect" title="Arapça lehçe">
+    <option value="ar-SA">Arapça (Suudi / Fusha)</option>
+    <option value="ar-EG">Arapça (Mısır)</option>
+    <option value="ar-AE">Arapça (BAE)</option>
+    <option value="ar-IQ">Arapça (Irak)</option>
+    <option value="ar-SY">Arapça (Suriye)</option>
+    <option value="ar-JO">Arapça (Ürdün)</option>
+    <option value="ar-LB">Arapça (Lübnan)</option>
+    <option value="ar-MA">Arapça (Fas)</option>
+  </select>
+  <button id="fullscreen" title="Tam ekran">⛶</button>
+  <button id="clear" title="Ekranı temizle">Temizle</button>
+  <button id="toggleSettings">Ayarlar</button>
+  <span id="status"><span id="dot"></span><span id="statusText">Hazır</span></span>
+</header>
+
+<div id="settings">
+  <label>Çeviri motoru
+    <select id="engine">
+      <option value="google">Google Translate (anahtarsız)</option>
+      <option value="claude">Claude (API anahtarı gerekir)</option>
+    </select>
+  </label>
+  <label id="keyWrap">Anthropic API anahtarı
+    <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off">
+  </label>
+  <label>Yazı boyutu <input id="fontSize" type="range" min="20" max="96" value="44"></label>
+  <label><input id="showAr" type="checkbox" checked> Arapça metni göster</label>
+  <label><input id="liveInterim" type="checkbox" checked> Konuşurken anlık çevir</label>
+</div>
+
+<main id="out">
+  <div id="empty">
+    <b>Başlat</b>'a basın ve mikrofon izni verin.<br>
+    Arapça konuşma dinlenir, Türkçesi burada canlı olarak akar.<br>
+    <small>Chrome veya Edge kullanın. Bilgisayar sesini (TV, YouTube, Zoom) çevirmek için README'ye bakın.</small>
+  </div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const out = $('out');
+
+// ---------- settings (localStorage is a convenience only) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('sc_' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('sc_' + k, JSON.stringify(v)); } catch {} },
+};
+$('dialect').value = store.get('dialect', 'ar-SA');
+$('engine').value = store.get('engine', 'google');
+$('apiKey').value = store.get('apiKey', '');
+$('fontSize').value = store.get('fontSize', 44);
+$('showAr').checked = store.get('showAr', true);
+$('liveInterim').checked = store.get('liveInterim', true);
+
+function applySettings() {
+  document.documentElement.style.setProperty('--font-tr', $('fontSize').value + 'px');
+  document.body.classList.toggle('hide-ar', !$('showAr').checked);
+  $('keyWrap').style.display = $('engine').value === 'claude' ? 'flex' : 'none';
+}
+applySettings();
+for (const id of ['dialect', 'engine', 'apiKey', 'fontSize', 'showAr', 'liveInterim']) {
+  $(id).addEventListener('input', () => {
+    const el = $(id);
+    store.set(id, el.type === 'checkbox' ? el.checked : el.value);
+    applySettings();
+    if (id === 'dialect' && listening) { recognition.lang = el.value; recognition.stop(); }
+  });
+}
+$('toggleSettings').onclick = () => $('settings').classList.toggle('open');
+$('fullscreen').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+$('clear').onclick = () => { out.innerHTML = ''; interimLine = null; };
+
+function setStatus(text, live) {
+  $('statusText').textContent = text;
+  $('dot').classList.toggle('live', !!live);
+}
+
+// ---------- translation engines ----------
+async function translateGoogle(text, signal) {
+  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=tr&dt=t&q=' + encodeURIComponent(text);
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error('Google çeviri hatası ' + res.status);
+  const data = await res.json();
+  return data[0].map((seg) => seg[0]).join('');
+}
+
+let anthropic = null, anthropicKey = null;
+async function translateClaude(text, signal, context) {
+  const key = $('apiKey').value.trim();
+  if (!key) throw new Error('Claude için API anahtarı girin (Ayarlar).');
+  if (!anthropic || anthropicKey !== key) {
+    const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk/+esm');
+    anthropic = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    anthropicKey = key;
+  }
+  const msg = await anthropic.beta.messages.create({
+    model: 'claude-opus-5-5',
+    max_tokens: 1024,
+    output_config: { effort: 'low' },
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    system:
+      'Sen canlı bir simultane tercümansın. Konuşma tanıma sisteminden gelen Arapça metni akıcı, doğal Türkçeye çevir. ' +
+      'Metin konuşma tanımadan geldiği için hatalı veya yarım olabilir; en makul anlamı ver. ' +
+      'Yalnızca Türkçe çeviriyi yaz; açıklama, tırnak veya not ekleme.',
+    messages: [{
+      role: 'user',
+      content: (context ? 'Önceki bağlam (çevirme, sadece bağlam için):\n' + context + '\n\n' : '') +
+        'Çevrilecek metin:\n' + text,
+    }],
+  }, { signal });
+  if (msg.stop_reason === 'refusal') throw new Error('Claude bu metni çevirmeyi reddetti.');
+  return msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+}
+
+const recentArabic = [];
+function translate(text, signal) {
+  return $('engine').value === 'claude'
+    ? translateClaude(text, signal, recentArabic.slice(-3).join(' '))
+    : translateGoogle(text, signal);
+}
+
+// ---------- display ----------
+let interimLine = null;
+function makeLine(cls) {
+  $('empty')?.remove();
+  const div = document.createElement('div');
+  div.className = 'line ' + (cls || '');
+  div.innerHTML = '<div class="tr"></div><div class="ar"></div>';
+  out.appendChild(div);
+  return div;
+}
+function scrollDown() {
+  const nearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 300;
+  if (nearBottom) out.scrollTop = out.scrollHeight;
+}
+
+// ---------- interim (live) translation, debounced ----------
+let interimTimer = null, interimAbort = null, lastInterimText = '';
+function scheduleInterim(arText) {
+  if (!interimLine) interimLine = makeLine('interim');
+  interimLine.querySelector('.ar').textContent = arText;
+  scrollDown();
+  if (!$('liveInterim').checked || arText === lastInterimText) return;
+  clearTimeout(interimTimer);
+  interimTimer = setTimeout(async () => {
+    lastInterimText = arText;
+    interimAbort?.abort();
+    interimAbort = new AbortController();
+    const line = interimLine;
+    try {
+      const tr = await translate(arText, interimAbort.signal);
+      if (line === interimLine) { line.querySelector('.tr').textContent = tr; scrollDown(); }
+    } catch (e) { if (e.name !== 'AbortError') console.warn(e); }
+  }, $('engine').value === 'claude' ? 700 : 300);
+}
+
+async function commitFinal(arText) {
+  clearTimeout(interimTimer);
+  interimAbort?.abort();
+  lastInterimText = '';
+  const line = interimLine || makeLine();
+  interimLine = null;
+  line.querySelector('.ar').textContent = arText;
+  try {
+    const tr = await translate(arText);
+    line.querySelector('.tr').textContent = tr;
+    line.classList.remove('interim');
+    recentArabic.push(arText);
+    if (recentArabic.length > 10) recentArabic.shift();
+  } catch (e) {
+    line.querySelector('.tr').textContent = '⚠ ' + e.message;
+  }
+  scrollDown();
+}
+
+// ---------- speech recognition ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, listening = false;
+
+if (!SR) {
+  setStatus('Bu tarayıcı konuşma tanımayı desteklemiyor — Chrome veya Edge kullanın.');
+  $('toggle').disabled = true;
+} else {
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      const t = r[0].transcript.trim();
+      if (!t) continue;
+      if (r.isFinal) commitFinal(t);
+      else interim += t + ' ';
+    }
+    if (interim.trim()) scheduleInterim(interim.trim());
+  };
+  recognition.onstart = () => setStatus('Dinleniyor…', true);
+  recognition.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      setStatus('Mikrofon izni reddedildi.');
+      stop();
+    } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      setStatus('Hata: ' + e.error);
+    }
+  };
+  // Chrome ends sessions after silence or ~60s; restart while the user wants to listen.
+  recognition.onend = () => {
+    if (listening) { try { recognition.start(); } catch {} }
+    else setStatus('Durduruldu');
+  };
+}
+
+function start() {
+  recognition.lang = $('dialect').value;
+  listening = true;
+  try { recognition.start(); } catch {}
+  $('toggle').textContent = '■ Durdur';
+  $('toggle').classList.add('on');
+}
+function stop() {
+  listening = false;
+  recognition.stop();
+  $('toggle').textContent = '▶ Başlat';
+  $('toggle').classList.remove('on');
+}
+$('toggle').onclick = () => (listening ? stop() : start());
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); $('toggle').click(); }
+});
+</script>
+</body>
+</html>
