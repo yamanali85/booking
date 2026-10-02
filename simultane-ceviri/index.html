@@ -242,47 +242,75 @@ async function commitFinal(arText) {
 
 // ---------- speech recognition ----------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+// iOS Safari: continuous mode often never delivers final results, so use one
+// phrase per session and restart, committing whatever text was heard on end.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 let recognition = null, listening = false;
+let committed = new Set(), pendingInterim = '', idleTimer = null, gotAnyResult = false;
+
+function commitPending() {
+  clearTimeout(idleTimer);
+  if (pendingInterim) { const t = pendingInterim; pendingInterim = ''; commitFinal(t); }
+}
 
 if (!SR) {
-  setStatus('Bu tarayıcı konuşma tanımayı desteklemiyor — Chrome veya Edge kullanın.');
+  setStatus('Bu tarayıcı konuşma tanımayı desteklemiyor — Chrome, Edge veya iPhone\'da Safari kullanın.');
   $('toggle').disabled = true;
 } else {
   recognition = new SR();
-  recognition.continuous = true;
+  recognition.continuous = !isIOS;
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
   recognition.onresult = (event) => {
+    gotAnyResult = true;
     let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
+    for (let i = 0; i < event.results.length; i++) {
       const r = event.results[i];
       const t = r[0].transcript.trim();
-      if (!t) continue;
-      if (r.isFinal) commitFinal(t);
+      if (!t || committed.has(i)) continue;
+      if (r.isFinal) { committed.add(i); pendingInterim = ''; commitFinal(t); }
       else interim += t + ' ';
     }
-    if (interim.trim()) scheduleInterim(interim.trim());
+    interim = interim.trim();
+    if (interim) {
+      pendingInterim = interim;
+      scheduleInterim(interim);
+      setStatus('Konuşma algılandı…', true);
+      // If the browser never marks the phrase final, commit it after a pause.
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(commitPending, 2000);
+    }
   };
-  recognition.onstart = () => setStatus('Dinleniyor…', true);
+  recognition.onstart = () => { committed = new Set(); setStatus('Dinleniyor…', true); };
+  recognition.onsoundstart = () => setStatus('Ses alınıyor…', true);
   recognition.onerror = (e) => {
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      setStatus('Mikrofon izni reddedildi.');
+    if ((e.error === 'not-allowed' || e.error === 'service-not-allowed') && !gotAnyResult) {
+      setStatus(isIOS
+        ? 'İzin yok: Ayarlar → Genel → Klavye → Dikte açık olmalı ve mikrofon izni verilmeli.'
+        : 'Mikrofon izni reddedildi.');
+      stop();
+    } else if (e.error === 'language-not-supported') {
+      setStatus('Bu lehçe cihazda desteklenmiyor — Arapça (Suudi) seçin.');
       stop();
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       setStatus('Hata: ' + e.error);
     }
   };
-  // Chrome ends sessions after silence or ~60s; restart while the user wants to listen.
+  // Sessions end after a phrase (iOS), silence or ~60s (Chrome); restart while listening.
   recognition.onend = () => {
-    if (listening) { try { recognition.start(); } catch {} }
-    else setStatus('Durduruldu');
+    commitPending();
+    if (!listening) { setStatus('Durduruldu'); return; }
+    try { recognition.start(); }
+    catch { setStatus('Dinleme durdu — devam etmek için Başlat\'a basın.'); stop(); }
   };
 }
 
 function start() {
   recognition.lang = $('dialect').value;
   listening = true;
+  gotAnyResult = false;
   try { recognition.start(); } catch {}
   $('toggle').textContent = '■ Durdur';
   $('toggle').classList.add('on');
