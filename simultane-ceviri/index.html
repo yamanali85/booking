@@ -53,6 +53,9 @@
   body.hide-ar .ar { display: none; }
   #empty { color: var(--muted); text-align: center; margin-top: 18vh; font-size: 18px; line-height: 1.6; padding: 0 16px; }
 
+  #diag { display: none; font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted);
+    background: #10141c; border-top: 1px solid #2e3548; padding: 8px 16px; max-height: 30vh; overflow-y: auto; white-space: pre-wrap; }
+  body.show-diag #diag { display: block; }
   @media (max-width: 600px) {
     :root { --font-tr: 28px; }
     #apiKey { width: 100%; }
@@ -92,6 +95,7 @@
   <label>Yazı boyutu <input id="fontSize" type="range" min="20" max="96" value="44"></label>
   <label><input id="showAr" type="checkbox" checked> Arapça metni göster</label>
   <label><input id="liveInterim" type="checkbox" checked> Konuşurken anlık çevir</label>
+  <label><input id="showDiag" type="checkbox" checked> Tanı kaydını göster</label>
 </div>
 
 <main id="out">
@@ -101,6 +105,7 @@
     <small>Chrome veya Edge kullanın. Bilgisayar sesini (TV, YouTube, Zoom) çevirmek için README'ye bakın.</small>
   </div>
 </main>
+<div id="diag"></div>
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
@@ -117,14 +122,16 @@ $('apiKey').value = store.get('apiKey', '');
 $('fontSize').value = store.get('fontSize', 44);
 $('showAr').checked = store.get('showAr', true);
 $('liveInterim').checked = store.get('liveInterim', true);
+$('showDiag').checked = store.get('showDiag', true);
 
 function applySettings() {
   document.documentElement.style.setProperty('--font-tr', $('fontSize').value + 'px');
   document.body.classList.toggle('hide-ar', !$('showAr').checked);
+  document.body.classList.toggle('show-diag', $('showDiag').checked);
   $('keyWrap').style.display = $('engine').value === 'claude' ? 'flex' : 'none';
 }
 applySettings();
-for (const id of ['dialect', 'engine', 'apiKey', 'fontSize', 'showAr', 'liveInterim']) {
+for (const id of ['dialect', 'engine', 'apiKey', 'fontSize', 'showAr', 'liveInterim', 'showDiag']) {
   $(id).addEventListener('input', () => {
     const el = $(id);
     store.set(id, el.type === 'checkbox' ? el.checked : el.value);
@@ -135,6 +142,14 @@ for (const id of ['dialect', 'engine', 'apiKey', 'fontSize', 'showAr', 'liveInte
 $('toggleSettings').onclick = () => $('settings').classList.toggle('open');
 $('fullscreen').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 $('clear').onclick = () => { out.innerHTML = ''; interimLine = null; };
+
+// On-screen event log so problems on phones (no dev tools) can be read off the screen.
+function log(msg) {
+  const d = $('diag');
+  const time = new Date().toLocaleTimeString('tr-TR');
+  d.textContent = (time + '  ' + msg + '\n' + d.textContent).split('\n').slice(0, 30).join('\n');
+}
+log('Tarayıcı: ' + navigator.userAgent);
 
 function setStatus(text, live) {
   $('statusText').textContent = text;
@@ -217,7 +232,7 @@ function scheduleInterim(arText) {
     try {
       const tr = await translate(arText, interimAbort.signal);
       if (line === interimLine) { line.querySelector('.tr').textContent = tr; scrollDown(); }
-    } catch (e) { if (e.name !== 'AbortError') console.warn(e); }
+    } catch (e) { if (e.name !== 'AbortError') log('Anlık çeviri hatası: ' + e.message); }
   }, $('engine').value === 'claude' ? 700 : 300);
 }
 
@@ -236,6 +251,7 @@ async function commitFinal(arText) {
     if (recentArabic.length > 10) recentArabic.shift();
   } catch (e) {
     line.querySelector('.tr').textContent = '⚠ ' + e.message;
+    log('Çeviri hatası: ' + e.message);
   }
   scrollDown();
 }
@@ -265,6 +281,7 @@ if (!SR) {
 
   recognition.onresult = (event) => {
     gotAnyResult = true;
+    log('Sonuç: ' + Array.from(event.results).map((r) => (r.isFinal ? '[son] ' : '') + r[0].transcript).join(' | '));
     let interim = '';
     for (let i = 0; i < event.results.length; i++) {
       const r = event.results[i];
@@ -283,9 +300,13 @@ if (!SR) {
       idleTimer = setTimeout(commitPending, 2000);
     }
   };
-  recognition.onstart = () => { committed = new Set(); setStatus('Dinleniyor…', true); };
-  recognition.onsoundstart = () => setStatus('Ses alınıyor…', true);
+  recognition.onstart = () => { committed = new Set(); setStatus('Dinleniyor…', true); log('Dinleme başladı (' + recognition.lang + ')'); };
+  recognition.onaudiostart = () => log('Mikrofon açıldı');
+  recognition.onsoundstart = () => { setStatus('Ses alınıyor…', true); log('Ses algılandı'); };
+  recognition.onspeechstart = () => log('Konuşma algılandı');
+  recognition.onnomatch = () => log('Konuşma anlaşılamadı');
   recognition.onerror = (e) => {
+    log('Hata: ' + e.error + (e.message ? ' — ' + e.message : ''));
     if ((e.error === 'not-allowed' || e.error === 'service-not-allowed') && !gotAnyResult) {
       setStatus(isIOS
         ? 'İzin yok: Ayarlar → Genel → Klavye → Dikte açık olmalı ve mikrofon izni verilmeli.'
@@ -300,10 +321,11 @@ if (!SR) {
   };
   // Sessions end after a phrase (iOS), silence or ~60s (Chrome); restart while listening.
   recognition.onend = () => {
+    log('Dinleme oturumu bitti');
     commitPending();
     if (!listening) { setStatus('Durduruldu'); return; }
     try { recognition.start(); }
-    catch { setStatus('Dinleme durdu — devam etmek için Başlat\'a basın.'); stop(); }
+    catch (err) { log('Yeniden başlatılamadı: ' + err.message); setStatus('Dinleme durdu — devam etmek için Başlat\'a basın.'); stop(); }
   };
 }
 
@@ -311,7 +333,7 @@ function start() {
   recognition.lang = $('dialect').value;
   listening = true;
   gotAnyResult = false;
-  try { recognition.start(); } catch {}
+  try { recognition.start(); } catch (err) { log('Başlatılamadı: ' + err.message); }
   $('toggle').textContent = '■ Durdur';
   $('toggle').classList.add('on');
 }
